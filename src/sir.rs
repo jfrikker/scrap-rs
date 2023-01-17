@@ -11,10 +11,6 @@ pub enum Expression {
         function: Rc<Expression>,
         arguments: Vec<Rc<Expression>>,
     },
-    GlobalReference {
-        name: Rc<String>,
-        dataType: Rc<DataType>,
-    },
     I64Literal(i64),
     Lambda {
         arguments: Vec<(Rc<String>, Rc<DataType>)>,
@@ -40,6 +36,11 @@ pub enum DataType {
         argument_types: Vec<Rc<DataType>>,
         return_type: Rc<DataType>,
     },
+    Primitive(PrimitiveDataType),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum PrimitiveDataType {
     I64,
 }
 

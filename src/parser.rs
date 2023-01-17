@@ -63,7 +63,7 @@ fn function_type(input: &str) -> IResult<&str, Rc<DataType>> {
 }
 
 fn non_function_type(input: &str) -> IResult<&str, Rc<DataType>> {
-    keyword("I64").map(|_| Rc::new(sir::DataType::I64)).parse(input)
+    keyword("I64").map(|_| Rc::new(sir::DataType::Primitive(sir::PrimitiveDataType::I64))).parse(input)
 }
 
 fn type_qualifier(input: &str) -> IResult<&str, Rc<DataType>> {
