@@ -33,6 +33,40 @@ impl <'ctx> Generator<'ctx> {
         self.builder.build_return(Some(&result));
     }
 
+    pub fn write_global_function(&mut self, name: &str, arguments: &[(Rc<String>, Rc<sir::DataType>)], return_type: &sir::DataType, value: &sir::Expression) {
+        let return_type = if let sir::DataType::Primitive(return_type) = return_type {
+            *return_type
+        } else {
+            todo!()
+        };
+
+        let param_types: Vec<_> = arguments.iter()
+            .map(|(_, data_type)| {
+                let data_type = if let sir::DataType::Primitive(data_type) = data_type.as_ref() {
+                    data_type
+                } else {
+                    todo!()
+                };
+                self.primitive_type_to_llvm(*data_type).into()
+            })
+            .collect();
+
+        let func_type = self.primitive_type_to_llvm(return_type).fn_type(&param_types, false);
+        let func = self.module.add_function(name, func_type, None);
+
+        for (i, (name, _)) in arguments.into_iter().enumerate() {
+            self.expression_scope.insert(name.clone(), func.get_nth_param(i as u32).unwrap());
+        }
+
+        let entry_block = self.context.append_basic_block(func, "entry");
+
+        self.builder.position_at_end(entry_block);
+        let result = self.write_primitive_expression(value);
+        self.builder.build_return(Some(&result));
+
+        self.expression_scope.clear();
+    }
+
     // pub fn write_global_primitive_constant(&self, name: &str, data_type: &sir::DataType, value: &sir::Expression) {
     //     let initialized_name = format!("{}$initialized", name);
     //     let value_name = format!("{}$value", name);

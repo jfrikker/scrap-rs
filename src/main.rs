@@ -18,6 +18,8 @@ fn main() -> anyhow::Result<()> {
         b = 456i64;
         a + b
     }
+
+    increment(i: I64): I64 = i + 1i64
     "#;
 
     let parsed = module.parse(text)?;
@@ -29,8 +31,10 @@ fn main() -> anyhow::Result<()> {
     for (name, global) in parsed.1.globals.iter() {
         if global.arguments.is_empty() {
             if let sir::DataType::Primitive(data_type) = *global.return_type {
-                generator.write_global_primitive_constant(name, data_type, global.body.as_ref())
+                generator.write_global_primitive_constant(name, data_type, global.body.as_ref());
             }
+        } else {
+            generator.write_global_function(name, &global.arguments, &global.return_type, &global.body);
         }
     }
 
