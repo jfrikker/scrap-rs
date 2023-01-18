@@ -58,12 +58,12 @@ fn function_type(input: &str) -> IResult<&str, Rc<DataType>> {
     let arguments = separated_list1(keyword(","), data_type);
     let arguments = delimited(keyword("("), arguments, keyword(")"));
     separated_pair(arguments, keyword(":"), non_function_type)
-        .map(|(argument_types, return_type)| Rc::new(sir::DataType::Function { argument_types, return_type }))
+        .map(|(argument_types, return_type)| Rc::new(sir::DataType::Primitive(Rc::new(sir::PrimitiveDataType::Function { argument_types, return_type }))))
         .parse(input)
 }
 
 fn non_function_type(input: &str) -> IResult<&str, Rc<DataType>> {
-    keyword("I64").map(|_| Rc::new(sir::DataType::Primitive(sir::PrimitiveDataType::I64))).parse(input)
+    keyword("I64").map(|_| Rc::new(sir::DataType::Primitive(Rc::new(sir::PrimitiveDataType::I64)))).parse(input)
 }
 
 fn type_qualifier(input: &str) -> IResult<&str, Rc<DataType>> {

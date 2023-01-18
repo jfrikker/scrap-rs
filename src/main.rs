@@ -7,6 +7,7 @@ use crate::{parser::module, generator::Generator};
 
 mod generator;
 mod parser;
+mod passes;
 mod sir;
 
 fn main() -> anyhow::Result<()> {
@@ -20,6 +21,8 @@ fn main() -> anyhow::Result<()> {
     }
 
     increment(i: I64): I64 = i + 1i64
+
+    test4: I64 = increment(test2)
     "#;
 
     let parsed = module.parse(text)?;
@@ -30,11 +33,21 @@ fn main() -> anyhow::Result<()> {
 
     for (name, global) in parsed.1.globals.iter() {
         if global.arguments.is_empty() {
-            if let sir::DataType::Primitive(data_type) = *global.return_type {
-                generator.write_global_primitive_constant(name, data_type, global.body.as_ref());
+            if let sir::DataType::Primitive(data_type) = global.return_type.as_ref() {
+                generator.declare_global_primitive_constant(name.clone(), &data_type);
             }
         } else {
-            generator.write_global_function(name, &global.arguments, &global.return_type, &global.body);
+            generator.declare_global_function(name.clone(), &global.arguments, &global.return_type);
+        }
+    }
+
+    for (name, global) in parsed.1.globals.iter() {
+        if global.arguments.is_empty() {
+            if let sir::DataType::Primitive(_) = *global.return_type {
+                generator.write_global_primitive_constant(name, global.body.as_ref());
+            }
+        } else {
+            generator.write_global_function(name, &global.arguments, &global.body);
         }
     }
 

@@ -1,6 +1,6 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, rc::Rc, env::args};
 
-use inkwell::{context::Context, module::Module, builder::Builder, values::{BasicValue, BasicValueEnum}, types::{BasicTypeEnum, BasicType}};
+use inkwell::{context::Context, module::Module, builder::Builder, values::{BasicValue, BasicValueEnum, FunctionValue, CallableValue}, types::{BasicTypeEnum, BasicType}, AddressSpace};
 
 use crate::sir;
 
@@ -10,6 +10,7 @@ pub struct Generator<'ctx> {
     builder: Builder<'ctx>,
 
     expression_scope: HashMap<Rc<String>, BasicValueEnum<'ctx>>,
+    globals: HashMap<Rc<String>, FunctionValue<'ctx>>,
 }
 
 impl <'ctx> Generator<'ctx> {
@@ -19,12 +20,18 @@ impl <'ctx> Generator<'ctx> {
             module: context.create_module("scrap"),
             builder: context.create_builder(),
             expression_scope: HashMap::new(),
+            globals: HashMap::new(),
         }
     }
 
-    pub fn write_global_primitive_constant(&mut self, name: &str, data_type: sir::PrimitiveDataType, value: &sir::Expression) {
+    pub fn declare_global_primitive_constant(&mut self, name: Rc<String>, data_type: &sir::PrimitiveDataType) {
         let func_type = self.primitive_type_to_llvm(data_type).fn_type(&[], false);
-        let func = self.module.add_function(name, func_type, None);
+        let func = self.module.add_function(&name, func_type, None);
+        self.globals.insert(name, func);
+    }
+
+    pub fn write_global_primitive_constant(&mut self, name: &Rc<String>, value: &sir::Expression) {
+        let func = self.globals.get(name).unwrap().clone();
 
         let entry_block = self.context.append_basic_block(func, "entry");
 
@@ -33,9 +40,9 @@ impl <'ctx> Generator<'ctx> {
         self.builder.build_return(Some(&result));
     }
 
-    pub fn write_global_function(&mut self, name: &str, arguments: &[(Rc<String>, Rc<sir::DataType>)], return_type: &sir::DataType, value: &sir::Expression) {
+    pub fn declare_global_function(&mut self, name: Rc<String>, arguments: &[(Rc<String>, Rc<sir::DataType>)], return_type: &sir::DataType) {
         let return_type = if let sir::DataType::Primitive(return_type) = return_type {
-            *return_type
+            return_type
         } else {
             todo!()
         };
@@ -47,12 +54,17 @@ impl <'ctx> Generator<'ctx> {
                 } else {
                     todo!()
                 };
-                self.primitive_type_to_llvm(*data_type).into()
+                self.primitive_type_to_llvm(data_type).into()
             })
             .collect();
 
-        let func_type = self.primitive_type_to_llvm(return_type).fn_type(&param_types, false);
-        let func = self.module.add_function(name, func_type, None);
+        let func_type = self.primitive_type_to_llvm(&return_type).fn_type(&param_types, false);
+        let func = self.module.add_function(&name, func_type, None);
+        self.globals.insert(name, func);
+    }
+
+    pub fn write_global_function(&mut self, name: &Rc<String>, arguments: &[(Rc<String>, Rc<sir::DataType>)], value: &sir::Expression) {
+        let func = self.globals.get(name).unwrap().clone();
 
         for (i, (name, _)) in arguments.into_iter().enumerate() {
             self.expression_scope.insert(name.clone(), func.get_nth_param(i as u32).unwrap());
@@ -108,7 +120,18 @@ impl <'ctx> Generator<'ctx> {
                 let right = self.write_primitive_expression(right.as_ref()).into_int_value();
                 self.builder.build_int_add(left, right, "add").as_basic_value_enum()
             }
-            sir::Expression::Reference { name } => self.expression_scope.get(name).unwrap().clone(),
+            sir::Expression::Call { function, arguments } => {
+                let function: CallableValue<'ctx> = self.write_primitive_expression(function).into_pointer_value().try_into().unwrap();
+                let args: Vec<_> = arguments.iter()
+                    .map(|arg| self.write_primitive_expression(arg).into())
+                    .collect();
+                self.builder.build_call(function, &args, "").try_as_basic_value().unwrap_left()
+            }
+            sir::Expression::Reference { name } => if let Some(local) = self.expression_scope.get(name) {
+                    local.clone()
+                } else {
+                    self.globals.get(name).unwrap().as_global_value().as_pointer_value().as_basic_value_enum()
+                },
             sir::Expression::Scope {
                 name,
                 value,
@@ -128,8 +151,23 @@ impl <'ctx> Generator<'ctx> {
         }
     }
 
-    fn primitive_type_to_llvm(&self, data_type: sir::PrimitiveDataType) -> BasicTypeEnum<'ctx> {
+    fn type_to_llvm(&self, data_type: &sir::DataType) -> BasicTypeEnum<'ctx> {
         match data_type {
+            sir::DataType::Primitive(t) => self.primitive_type_to_llvm(t),
+        }
+    }
+
+    fn primitive_type_to_llvm(&self, data_type: &sir::PrimitiveDataType) -> BasicTypeEnum<'ctx> {
+        match data_type {
+            sir::PrimitiveDataType::Function { argument_types, return_type } => match return_type.as_ref() {
+                    sir::DataType::Primitive(return_type) => {
+                        let return_type = self.primitive_type_to_llvm(return_type);
+                        let param_types: Vec<_> = argument_types.iter()
+                            .map(|argument_type| self.type_to_llvm(argument_type).into())
+                            .collect();
+                        return_type.fn_type(&param_types, false).ptr_type(AddressSpace::default()).as_basic_type_enum()
+                    }
+                }
             sir::PrimitiveDataType::I64 => self.context.i64_type().as_basic_type_enum(),
         }
     }

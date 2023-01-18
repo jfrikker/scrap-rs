@@ -4,43 +4,43 @@ use std::{rc::Rc, collections::HashMap};
 pub enum Expression {
     BinaryOperation {
         operation: BinaryOperation,
-        left: Rc<Expression>,
-        right: Rc<Expression>,
+        left: Box<Expression>,
+        right: Box<Expression>,
     },
     Call {
-        function: Rc<Expression>,
-        arguments: Vec<Rc<Expression>>,
+        function: Box<Expression>,
+        arguments: Vec<Expression>,
     },
     I64Literal(i64),
     Lambda {
-        arguments: Vec<(Rc<String>, Rc<DataType>)>,
-        body: Rc<Expression>,
+        arguments: Vec<(String, DataType)>,
+        body: Box<Expression>,
     },
     MemberAccess {
-        left: Rc<Expression>,
-        member: Rc<String>,
+        left: Box<Expression>,
+        member: Box<String>,
     },
     Reference {
-        name: Rc<String>,
+        name: String,
     },
     Scope {
-        name: Rc<String>,
-        value: Rc<Expression>,
-        body: Rc<Expression>,
+        name: String,
+        value: Box<Expression>,
+        body: Box<Expression>,
     }
 }
 
 #[derive(Debug)]
 pub enum DataType {
-    Function {
-        argument_types: Vec<Rc<DataType>>,
-        return_type: Rc<DataType>,
-    },
     Primitive(PrimitiveDataType),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub enum PrimitiveDataType {
+    Function {
+        argument_types: Vec<DataType>,
+        return_type: Box<DataType>,
+    },
     I64,
 }
 
