@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc, env::args};
+use std::collections::HashMap;
 
 use inkwell::{context::Context, module::Module, builder::Builder, values::{BasicValue, BasicValueEnum, FunctionValue, CallableValue}, types::{BasicTypeEnum, BasicType}, AddressSpace};
 
@@ -9,8 +9,8 @@ pub struct Generator<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
 
-    expression_scope: HashMap<Rc<String>, BasicValueEnum<'ctx>>,
-    globals: HashMap<Rc<String>, FunctionValue<'ctx>>,
+    expression_scope: HashMap<String, BasicValueEnum<'ctx>>,
+    globals: HashMap<String, FunctionValue<'ctx>>,
 }
 
 impl <'ctx> Generator<'ctx> {
@@ -24,13 +24,13 @@ impl <'ctx> Generator<'ctx> {
         }
     }
 
-    pub fn declare_global_primitive_constant(&mut self, name: Rc<String>, data_type: &sir::PrimitiveDataType) {
+    pub fn declare_global_primitive_constant(&mut self, name: String, data_type: &sir::PrimitiveDataType) {
         let func_type = self.primitive_type_to_llvm(data_type).fn_type(&[], false);
         let func = self.module.add_function(&name, func_type, None);
         self.globals.insert(name, func);
     }
 
-    pub fn write_global_primitive_constant(&mut self, name: &Rc<String>, value: &sir::Expression) {
+    pub fn write_global_primitive_constant(&mut self, name: &str, value: &sir::Expression) {
         let func = self.globals.get(name).unwrap().clone();
 
         let entry_block = self.context.append_basic_block(func, "entry");
@@ -40,7 +40,7 @@ impl <'ctx> Generator<'ctx> {
         self.builder.build_return(Some(&result));
     }
 
-    pub fn declare_global_function(&mut self, name: Rc<String>, arguments: &[(Rc<String>, Rc<sir::DataType>)], return_type: &sir::DataType) {
+    pub fn declare_global_function(&mut self, name: String, arguments: &[(String, sir::DataType)], return_type: &sir::DataType) {
         let return_type = if let sir::DataType::Primitive(return_type) = return_type {
             return_type
         } else {
@@ -49,7 +49,7 @@ impl <'ctx> Generator<'ctx> {
 
         let param_types: Vec<_> = arguments.iter()
             .map(|(_, data_type)| {
-                let data_type = if let sir::DataType::Primitive(data_type) = data_type.as_ref() {
+                let data_type = if let sir::DataType::Primitive(data_type) = data_type {
                     data_type
                 } else {
                     todo!()
@@ -63,7 +63,7 @@ impl <'ctx> Generator<'ctx> {
         self.globals.insert(name, func);
     }
 
-    pub fn write_global_function(&mut self, name: &Rc<String>, arguments: &[(Rc<String>, Rc<sir::DataType>)], value: &sir::Expression) {
+    pub fn write_global_function(&mut self, name: &str, arguments: &[(String, sir::DataType)], value: &sir::Expression) {
         let func = self.globals.get(name).unwrap().clone();
 
         for (i, (name, _)) in arguments.into_iter().enumerate() {

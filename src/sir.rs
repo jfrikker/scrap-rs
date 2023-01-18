@@ -1,6 +1,6 @@
-use std::{rc::Rc, collections::HashMap};
+use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Expression {
     BinaryOperation {
         operation: BinaryOperation,
@@ -18,7 +18,7 @@ pub enum Expression {
     },
     MemberAccess {
         left: Box<Expression>,
-        member: Box<String>,
+        member: String,
     },
     Reference {
         name: String,
@@ -30,12 +30,12 @@ pub enum Expression {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum DataType {
     Primitive(PrimitiveDataType),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum PrimitiveDataType {
     Function {
         argument_types: Vec<DataType>,
@@ -44,7 +44,7 @@ pub enum PrimitiveDataType {
     I64,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum BinaryOperation {
     Add,
     Divide,
@@ -54,12 +54,12 @@ pub enum BinaryOperation {
 
 #[derive(Debug)]
 pub struct Global {
-    pub arguments: Vec<(Rc<String>, Rc<DataType>)>,
-    pub return_type: Rc<DataType>,
-    pub body: Rc<Expression>,
+    pub arguments: Vec<(String, DataType)>,
+    pub return_type: DataType,
+    pub body: Expression,
 }
 
 #[derive(Debug)]
 pub struct Module {
-    pub globals: HashMap<Rc<String>, Rc<Global>>,
+    pub globals: HashMap<String, Global>,
 }
