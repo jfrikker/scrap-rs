@@ -1,4 +1,4 @@
-use nom::{IResult, bytes::complete::tag, character::complete::{multispace0, satisfy}, multi::{many0, separated_list1}, combinator::{opt, recognize}, Parser, AsChar, sequence::{terminated, delimited, tuple, preceded, separated_pair}, InputTakeAtPosition, error::ParseError};
+use nom::{IResult, bytes::complete::tag, character::complete::{multispace0, satisfy}, multi::{many0, separated_list1, separated_list0}, combinator::{opt, recognize}, Parser, AsChar, sequence::{terminated, delimited, tuple, preceded, separated_pair}, InputTakeAtPosition, error::ParseError};
 
 use crate::sir::{self, DataType};
 
@@ -61,7 +61,16 @@ fn function_type(input: &str) -> IResult<&str, DataType> {
 }
 
 fn non_function_type(input: &str) -> IResult<&str, DataType> {
-    keyword("I64").map(|_| sir::DataType::Primitive(sir::PrimitiveDataType::I64)).parse(input)
+    keyword("I64").map(|_| sir::DataType::Primitive(sir::PrimitiveDataType::I64))
+        .or(tuple_type)
+        .parse(input)
+}
+
+fn tuple_type(input: &str) -> IResult<&str, DataType> {
+    let elems = separated_list1(keyword(","), data_type)
+        .map(|elems| sir::DataType::Tuple(elems));
+    let mut tuple = delimited(keyword("("), elems, keyword(")"));
+    tuple.parse(input)
 }
 
 fn type_qualifier(input: &str) -> IResult<&str, DataType> {
@@ -140,11 +149,25 @@ fn call(function: sir::Expression) -> impl FnMut(&str) -> IResult<&str, sir::Exp
 }
 
 fn atom(input: &str) -> IResult<&str, sir::Expression> {
-    parens
+    tuple_val
+        .or(parens)
         .or(block)
         .or(reference)
         .or(i64_literal)
         .parse(input)
+}
+
+fn tuple_val(input: &str) -> IResult<&str, sir::Expression> {
+    let first = terminated(expression, keyword(","));
+    let rest = separated_list0(keyword(","), expression);
+    let contents = first.and(rest).map(|(first, rest)| {
+        let mut res = vec!(first);
+        res.extend(rest.into_iter());
+        sir::Expression::Tuple {
+            values: res,
+        }
+    });
+    delimited(keyword("("), contents, keyword(")")).parse(input)
 }
 
 fn parens(input: &str) -> IResult<&str, sir::Expression> {

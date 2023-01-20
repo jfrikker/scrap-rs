@@ -12,4 +12,4 @@ nom = "7"
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell"
 branch = "master"
-features = ["llvm13-0"]
+features = ["llvm14-0"]

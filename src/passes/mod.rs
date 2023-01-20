@@ -32,6 +32,11 @@ pub fn transform_expression(expression: &mut sir::Expression, f: &impl Fn(&mut s
             transform_expression(value, f);
             transform_expression(body, f);
         }
+        sir::Expression::Tuple { values } => {
+            for value in values {
+                transform_expression(value, f);
+            }
+        }
     }
 
     f(expression);

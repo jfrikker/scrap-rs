@@ -27,12 +27,16 @@ pub enum Expression {
         name: String,
         value: Box<Expression>,
         body: Box<Expression>,
-    }
+    },
+    Tuple {
+        values: Vec<Expression>,
+    },
 }
 
 #[derive(Clone, Debug)]
 pub enum DataType {
     Primitive(PrimitiveDataType),
+    Tuple(Vec<DataType>),
 }
 
 #[derive(Clone, Debug)]
