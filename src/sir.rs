@@ -11,6 +11,10 @@ pub enum Expression {
         function: Box<Expression>,
         arguments: Vec<Expression>,
     },
+    GlobalReference {
+        name: String,
+        data_type: DataType,
+    },
     I64Literal(i64),
     Lambda {
         arguments: Vec<(String, DataType)>,
@@ -19,6 +23,10 @@ pub enum Expression {
     MemberAccess {
         left: Box<Expression>,
         member: String,
+    },
+    FunctionParam {
+        index: u32,
+        data_type: DataType,
     },
     Reference {
         name: String,

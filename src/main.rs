@@ -3,7 +3,7 @@ use std::path::Path;
 use inkwell::context::Context;
 use nom::Parser;
 
-use crate::{parser::module, generator::Generator, passes::remove_scopes::remove_scopes};
+use crate::{parser::module, generator::Generator, passes::{remove_scopes::remove_scopes, build_function_params::build_function_params, build_global_references::build_global_references}};
 
 mod generator;
 mod parser;
@@ -12,7 +12,8 @@ mod sir;
 
 fn main() -> anyhow::Result<()> {
     let text = r#"
-test: ((I64, I64), I64, (I64, I64, I64)) = ((123i64 + 4i64, 456i64), 1i64, (12i64, 54i64, 23i64))
+foo: (I64, I64) = (123i64 + 4i64, 456i64)
+test: ((I64, I64), I64, (I64, I64, I64)) = (foo, 1i64, (12i64, 54i64, 23i64))
     "#;
 
     let parsed = module.parse(text)?;
@@ -20,6 +21,8 @@ test: ((I64, I64), I64, (I64, I64, I64)) = ((123i64 + 4i64, 456i64), 1i64, (12i6
     let mut parsed = parsed.1;
 
     remove_scopes(&mut parsed);
+    build_function_params(&mut parsed);
+    build_global_references(&mut parsed);
     println!("{:#?}", parsed);
 
     let context = Context::create();
@@ -41,7 +44,7 @@ test: ((I64, I64), I64, (I64, I64, I64)) = ((123i64 + 4i64, 456i64), 1i64, (12i6
                 generator.write_global_nonprimitive_constant(name, &global.body);
             }
         } else {
-            generator.write_global_function(name, &global.arguments, &global.body);
+            generator.write_global_function(name, &global.body);
         }
     }
 

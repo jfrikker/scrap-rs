@@ -9,8 +9,8 @@ pub struct Generator<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
 
-    expression_scope: HashMap<String, BasicValueEnum<'ctx>>,
     globals: HashMap<String, FunctionValue<'ctx>>,
+    current_function: Option<FunctionValue<'ctx>>,
 }
 
 impl <'ctx> Generator<'ctx> {
@@ -19,8 +19,8 @@ impl <'ctx> Generator<'ctx> {
             context,
             module: context.create_module("scrap"),
             builder: context.create_builder(),
-            expression_scope: HashMap::new(),
             globals: HashMap::new(),
+            current_function: None,
         }
     }
 
@@ -72,20 +72,18 @@ impl <'ctx> Generator<'ctx> {
         self.globals.insert(name, func);
     }
 
-    pub fn write_global_function(&mut self, name: &str, arguments: &[(String, sir::DataType)], value: &sir::Expression) {
+    pub fn write_global_function(&mut self, name: &str, value: &sir::Expression) {
         let func = self.globals.get(name).unwrap().clone();
 
-        for (i, (name, _)) in arguments.into_iter().enumerate() {
-            self.expression_scope.insert(name.clone(), func.get_nth_param(i as u32).unwrap());
-        }
-
         let entry_block = self.context.append_basic_block(func, "entry");
+
+        self.current_function = Some(func);
 
         self.builder.position_at_end(entry_block);
         let result = self.write_primitive_expression(value);
         self.builder.build_return(Some(&result));
 
-        self.expression_scope.clear();
+        self.current_function = None;
     }
 
     // pub fn write_global_primitive_constant(&self, name: &str, data_type: &sir::DataType, value: &sir::Expression) {
@@ -136,11 +134,11 @@ impl <'ctx> Generator<'ctx> {
                     .collect();
                 self.builder.build_call(function, &args, "").try_as_basic_value().unwrap_left()
             }
-            sir::Expression::Reference { name } => if let Some(local) = self.expression_scope.get(name) {
-                    local.clone()
-                } else {
-                    self.globals.get(name).unwrap().as_global_value().as_pointer_value().as_basic_value_enum()
-                },
+            sir::Expression::FunctionParam { index, .. } => self.current_function.unwrap().get_nth_param(*index).unwrap(),
+            sir::Expression::GlobalReference { name, data_type: sir::DataType::Primitive(sir::PrimitiveDataType::Function { .. }) } =>
+                self.globals.get(name).unwrap().as_global_value().as_pointer_value().as_basic_value_enum(),
+            sir::Expression::GlobalReference { name, .. } =>
+                self.builder.build_call(self.globals.get(name).unwrap().clone(), &[], "").try_as_basic_value().unwrap_left(),
             _ => todo!(),
         }
     }
@@ -152,6 +150,13 @@ impl <'ctx> Generator<'ctx> {
                     let dest = self.builder.build_struct_gep(out, i as u32, "").unwrap();
                     self.write_nonprimitive_expression(value, dest);
                 }
+            }
+            sir::Expression::GlobalReference { data_type: sir::DataType::Primitive(sir::PrimitiveDataType::Function { .. }), .. } => {
+                let value = self.write_primitive_expression(expr);
+                self.builder.build_store(out, value);
+            }
+            sir::Expression::GlobalReference { name, .. } => {
+                self.builder.build_call(self.globals.get(name).unwrap().clone(), &[out.into()], "");
             }
             e => {
                 let value = self.write_primitive_expression(e);

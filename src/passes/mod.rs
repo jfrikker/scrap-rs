@@ -1,5 +1,7 @@
 use crate::sir;
 
+pub mod build_function_params;
+pub mod build_global_references;
 pub mod remove_scopes;
 
 pub fn transform_module(module: &mut sir::Module, f: &impl Fn(&mut sir::Expression)) {
@@ -37,6 +39,7 @@ pub fn transform_expression(expression: &mut sir::Expression, f: &impl Fn(&mut s
                 transform_expression(value, f);
             }
         }
+        _ => {}
     }
 
     f(expression);
