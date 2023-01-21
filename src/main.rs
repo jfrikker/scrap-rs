@@ -3,7 +3,14 @@ use std::path::Path;
 use inkwell::context::Context;
 use nom::Parser;
 
-use crate::{parser::module, generator::Generator, passes::{remove_scopes::remove_scopes, build_function_params::build_function_params, build_global_references::build_global_references}};
+use crate::{
+    generator::Generator,
+    parser::module,
+    passes::{
+        build_function_params::build_function_params,
+        build_global_references::build_global_references, remove_scopes::remove_scopes,
+    },
+};
 
 mod generator;
 mod parser;

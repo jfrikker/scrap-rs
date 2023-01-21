@@ -16,7 +16,10 @@ pub fn transform_expression(expression: &mut sir::Expression, f: &impl Fn(&mut s
             transform_expression(left, f);
             transform_expression(right, f);
         }
-        sir::Expression::Call { function, arguments } => {
+        sir::Expression::Call {
+            function,
+            arguments,
+        } => {
             transform_expression(function, f);
             for argument in arguments {
                 transform_expression(argument, f);

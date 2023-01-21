@@ -1,6 +1,13 @@
 use std::collections::HashMap;
 
-use inkwell::{context::Context, module::Module, builder::Builder, values::{BasicValue, BasicValueEnum, FunctionValue, CallableValue, PointerValue}, types::{BasicTypeEnum, BasicType}, AddressSpace};
+use inkwell::{
+    builder::Builder,
+    context::Context,
+    module::Module,
+    types::{BasicType, BasicTypeEnum},
+    values::{BasicValue, BasicValueEnum, CallableValue, FunctionValue, PointerValue},
+    AddressSpace,
+};
 
 use crate::sir;
 
@@ -13,7 +20,7 @@ pub struct Generator<'ctx> {
     current_function: Option<FunctionValue<'ctx>>,
 }
 
-impl <'ctx> Generator<'ctx> {
+impl<'ctx> Generator<'ctx> {
     pub fn new(context: &'ctx Context) -> Self {
         Self {
             context,
@@ -27,7 +34,10 @@ impl <'ctx> Generator<'ctx> {
     pub fn declare_global_constant(&mut self, name: String, data_type: &sir::DataType) {
         let func_type = match data_type {
             sir::DataType::Primitive(t) => self.primitive_type_to_llvm(t).fn_type(&[], false),
-            t => self.context.void_type().fn_type(&[self.type_to_llvm_reference(t).into()], false),
+            t => self
+                .context
+                .void_type()
+                .fn_type(&[self.type_to_llvm_reference(t).into()], false),
         };
         let func = self.module.add_function(&name, func_type, None);
         self.globals.insert(name, func);
@@ -49,23 +59,32 @@ impl <'ctx> Generator<'ctx> {
         let entry_block = self.context.append_basic_block(func, "entry");
 
         self.builder.position_at_end(entry_block);
-        self.write_nonprimitive_expression(value, func.get_nth_param(0).unwrap().into_pointer_value());
+        self.write_nonprimitive_expression(
+            value,
+            func.get_nth_param(0).unwrap().into_pointer_value(),
+        );
         self.builder.build_return(None);
     }
 
-    pub fn declare_global_function(&mut self, name: String, arguments: &[(String, sir::DataType)], return_type: &sir::DataType) {
-        let mut param_types: Vec<_> = arguments.iter()
-            .map(|(_, data_type)| {
-                self.type_to_llvm_reference(data_type).into()
-            })
+    pub fn declare_global_function(
+        &mut self,
+        name: String,
+        arguments: &[(String, sir::DataType)],
+        return_type: &sir::DataType,
+    ) {
+        let mut param_types: Vec<_> = arguments
+            .iter()
+            .map(|(_, data_type)| self.type_to_llvm_reference(data_type).into())
             .collect();
 
         let func_type = match return_type {
-            sir::DataType::Primitive(t) => self.primitive_type_to_llvm(t).fn_type(&param_types, false),
+            sir::DataType::Primitive(t) => {
+                self.primitive_type_to_llvm(t).fn_type(&param_types, false)
+            }
             t => {
                 param_types.push(self.type_to_llvm_reference(t).into());
                 self.context.void_type().fn_type(&param_types, false)
-            },
+            }
         };
 
         let func = self.module.add_function(&name, func_type, None);
@@ -117,51 +136,91 @@ impl <'ctx> Generator<'ctx> {
 
     fn write_primitive_expression(&mut self, expr: &sir::Expression) -> BasicValueEnum<'ctx> {
         match expr {
-            sir::Expression::I64Literal(val) => self.context.i64_type().const_int(*val as u64, true).as_basic_value_enum(),
+            sir::Expression::I64Literal(val) => self
+                .context
+                .i64_type()
+                .const_int(*val as u64, true)
+                .as_basic_value_enum(),
             sir::Expression::BinaryOperation {
                 operation: sir::BinaryOperation::Add,
                 left,
-                right
+                right,
             } => {
-                let left = self.write_primitive_expression(left.as_ref()).into_int_value();
-                let right = self.write_primitive_expression(right.as_ref()).into_int_value();
-                self.builder.build_int_add(left, right, "add").as_basic_value_enum()
+                let left = self
+                    .write_primitive_expression(left.as_ref())
+                    .into_int_value();
+                let right = self
+                    .write_primitive_expression(right.as_ref())
+                    .into_int_value();
+                self.builder
+                    .build_int_add(left, right, "add")
+                    .as_basic_value_enum()
             }
-            sir::Expression::Call { function, arguments } => {
-                let function: CallableValue<'ctx> = self.write_primitive_expression(function).into_pointer_value().try_into().unwrap();
-                let args: Vec<_> = arguments.iter()
+            sir::Expression::Call {
+                function,
+                arguments,
+            } => {
+                let function: CallableValue<'ctx> = self
+                    .write_primitive_expression(function)
+                    .into_pointer_value()
+                    .try_into()
+                    .unwrap();
+                let args: Vec<_> = arguments
+                    .iter()
                     .map(|arg| self.write_primitive_expression(arg).into())
                     .collect();
-                self.builder.build_call(function, &args, "").try_as_basic_value().unwrap_left()
+                self.builder
+                    .build_call(function, &args, "")
+                    .try_as_basic_value()
+                    .unwrap_left()
             }
-            sir::Expression::FunctionParam { index, .. } => self.current_function.unwrap().get_nth_param(*index).unwrap(),
-            sir::Expression::GlobalReference { name, data_type: sir::DataType::Primitive(sir::PrimitiveDataType::Function { .. }) } =>
-                self.globals.get(name).unwrap().as_global_value().as_pointer_value().as_basic_value_enum(),
-            sir::Expression::GlobalReference { name, .. } =>
-                self.builder.build_call(self.globals.get(name).unwrap().clone(), &[], "").try_as_basic_value().unwrap_left(),
+            sir::Expression::FunctionParam { index, .. } => self
+                .current_function
+                .unwrap()
+                .get_nth_param(*index)
+                .unwrap(),
+            sir::Expression::GlobalReference {
+                name,
+                data_type: sir::DataType::Primitive(sir::PrimitiveDataType::Function { .. }),
+            } => self
+                .globals
+                .get(name)
+                .unwrap()
+                .as_global_value()
+                .as_pointer_value()
+                .as_basic_value_enum(),
+            sir::Expression::GlobalReference { name, .. } => self
+                .builder
+                .build_call(self.globals.get(name).unwrap().clone(), &[], "")
+                .try_as_basic_value()
+                .unwrap_left(),
             _ => todo!(),
         }
     }
 
     fn write_nonprimitive_expression(&mut self, expr: &sir::Expression, out: PointerValue<'ctx>) {
         match expr {
-            sir::Expression::Tuple{ values } => {
+            sir::Expression::Tuple { values } => {
                 for (i, value) in values.iter().enumerate() {
                     let dest = self.builder.build_struct_gep(out, i as u32, "").unwrap();
                     self.write_nonprimitive_expression(value, dest);
                 }
             }
-            sir::Expression::GlobalReference { data_type: sir::DataType::Primitive(sir::PrimitiveDataType::Function { .. }), .. } => {
+            sir::Expression::GlobalReference {
+                data_type: sir::DataType::Primitive(sir::PrimitiveDataType::Function { .. }),
+                ..
+            } => {
                 let value = self.write_primitive_expression(expr);
                 self.builder.build_store(out, value);
             }
             sir::Expression::GlobalReference { name, .. } => {
-                self.builder.build_call(self.globals.get(name).unwrap().clone(), &[out.into()], "");
+                self.builder
+                    .build_call(self.globals.get(name).unwrap().clone(), &[out.into()], "");
             }
             e => {
                 let value = self.write_primitive_expression(e);
                 self.builder.build_store(out, value);
-            },
+            }
         }
     }
 
@@ -169,28 +228,39 @@ impl <'ctx> Generator<'ctx> {
         match data_type {
             sir::DataType::Primitive(t) => self.primitive_type_to_llvm(t),
             sir::DataType::Tuple(members) => {
-                let field_types: Vec<_> = members.iter()
-                    .map(|t| self.type_to_llvm(t))
-                    .collect();
-                self.context.struct_type(&field_types, false).as_basic_type_enum()
+                let field_types: Vec<_> = members.iter().map(|t| self.type_to_llvm(t)).collect();
+                self.context
+                    .struct_type(&field_types, false)
+                    .as_basic_type_enum()
             }
         }
     }
 
     fn primitive_type_to_llvm(&self, data_type: &sir::PrimitiveDataType) -> BasicTypeEnum<'ctx> {
         match data_type {
-            sir::PrimitiveDataType::Function { argument_types, return_type } => {
-                let mut param_types: Vec<_> = argument_types.iter()
+            sir::PrimitiveDataType::Function {
+                argument_types,
+                return_type,
+            } => {
+                let mut param_types: Vec<_> = argument_types
+                    .iter()
                     .map(|argument_type| self.type_to_llvm_reference(argument_type).into())
                     .collect();
                 match return_type.as_ref() {
                     sir::DataType::Primitive(return_type) => {
                         let return_type = self.primitive_type_to_llvm(return_type);
-                        return_type.fn_type(&param_types, false).ptr_type(AddressSpace::default()).as_basic_type_enum()
-                    },
+                        return_type
+                            .fn_type(&param_types, false)
+                            .ptr_type(AddressSpace::default())
+                            .as_basic_type_enum()
+                    }
                     t => {
                         param_types.push(self.type_to_llvm_reference(t).into());
-                        self.context.void_type().fn_type(&param_types, false).ptr_type(AddressSpace::default()).as_basic_type_enum()
+                        self.context
+                            .void_type()
+                            .fn_type(&param_types, false)
+                            .ptr_type(AddressSpace::default())
+                            .as_basic_type_enum()
                     }
                 }
             }
@@ -201,7 +271,10 @@ impl <'ctx> Generator<'ctx> {
     fn type_to_llvm_reference(&self, data_type: &sir::DataType) -> BasicTypeEnum<'ctx> {
         match data_type {
             sir::DataType::Primitive(t) => self.primitive_type_to_llvm(t),
-            t => self.type_to_llvm(t).ptr_type(AddressSpace::default()).as_basic_type_enum()
+            t => self
+                .type_to_llvm(t)
+                .ptr_type(AddressSpace::default())
+                .as_basic_type_enum(),
         }
     }
 
