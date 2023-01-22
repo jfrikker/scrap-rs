@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Write, mem::{replace, swap}};
 
 use inkwell::{
     builder::Builder,
     context::Context,
     module::Module,
     types::{BasicType, BasicTypeEnum},
-    values::{BasicValue, BasicValueEnum, CallableValue, FunctionValue, PointerValue},
+    values::{BasicValue, BasicValueEnum, CallableValue, FunctionValue, PointerValue, BasicMetadataValueEnum},
     AddressSpace,
 };
 
@@ -49,7 +49,7 @@ impl<'ctx> Generator<'ctx> {
         let entry_block = self.context.append_basic_block(func, "entry");
 
         self.builder.position_at_end(entry_block);
-        let result = self.write_primitive_expression(value);
+        let result = self.write_expression(value);
         self.builder.build_return(Some(&result));
     }
 
@@ -59,7 +59,7 @@ impl<'ctx> Generator<'ctx> {
         let entry_block = self.context.append_basic_block(func, "entry");
 
         self.builder.position_at_end(entry_block);
-        self.write_nonprimitive_expression(
+        self.write_expression_into(
             value,
             func.get_nth_param(0).unwrap().into_pointer_value(),
         );
@@ -99,8 +99,16 @@ impl<'ctx> Generator<'ctx> {
         self.current_function = Some(func);
 
         self.builder.position_at_end(entry_block);
-        let result = self.write_primitive_expression(value);
-        self.builder.build_return(Some(&result));
+
+        eprintln!("{:?}", value.data_type());
+        if value.data_type().is_primitive() {
+            let result = self.write_expression(value);
+            self.builder.build_return(Some(&result));
+        } else {
+            let out = func.get_last_param().unwrap().into_pointer_value();
+            self.write_expression_into(value, out);
+            self.builder.build_return(None);
+        }
 
         self.current_function = None;
     }
@@ -134,23 +142,18 @@ impl<'ctx> Generator<'ctx> {
     //     builder.build_return(Some(&value_value));
     // }
 
-    fn write_primitive_expression(&mut self, expr: &sir::Expression) -> BasicValueEnum<'ctx> {
+    fn write_expression(&mut self, expr: &sir::Expression) -> BasicValueEnum<'ctx> {
         match expr {
-            sir::Expression::I64Literal(val) => self
-                .context
-                .i64_type()
-                .const_int(*val as u64, true)
-                .as_basic_value_enum(),
             sir::Expression::BinaryOperation {
                 operation: sir::BinaryOperation::Add,
                 left,
                 right,
             } => {
                 let left = self
-                    .write_primitive_expression(left.as_ref())
+                    .write_expression(left.as_ref())
                     .into_int_value();
                 let right = self
-                    .write_primitive_expression(right.as_ref())
+                    .write_expression(right.as_ref())
                     .into_int_value();
                 self.builder
                     .build_int_add(left, right, "add")
@@ -161,16 +164,15 @@ impl<'ctx> Generator<'ctx> {
                 arguments,
             } => {
                 let function: CallableValue<'ctx> = self
-                    .write_primitive_expression(function)
+                    .write_expression(function)
                     .into_pointer_value()
                     .try_into()
                     .unwrap();
-                let args: Vec<_> = arguments
-                    .iter()
-                    .map(|arg| self.write_primitive_expression(arg).into())
+                let arguments: Vec<BasicMetadataValueEnum<'ctx>> = arguments.iter()
+                    .map(|argument| self.write_expression(argument).into())
                     .collect();
                 self.builder
-                    .build_call(function, &args, "")
+                    .build_call(function, &arguments, "")
                     .try_as_basic_value()
                     .unwrap_left()
             }
@@ -194,31 +196,60 @@ impl<'ctx> Generator<'ctx> {
                 .build_call(self.globals.get(name).unwrap().clone(), &[], "")
                 .try_as_basic_value()
                 .unwrap_left(),
-            _ => todo!(),
+            sir::Expression::I64Literal(val) => self
+                .context
+                .i64_type()
+                .const_int(*val as u64, true)
+                .as_basic_value_enum(),
+            e => {
+                let data_type = e.data_type();
+                let temp = self.builder.build_alloca(self.type_to_llvm(data_type.as_ref()), "");
+                self.write_expression_into(e, temp);
+                temp.as_basic_value_enum()
+            },
         }
     }
 
-    fn write_nonprimitive_expression(&mut self, expr: &sir::Expression, out: PointerValue<'ctx>) {
+    fn write_expression_into(&mut self, expr: &sir::Expression, out: PointerValue<'ctx>) {
         match expr {
-            sir::Expression::Tuple { values } => {
-                for (i, value) in values.iter().enumerate() {
-                    let dest = self.builder.build_struct_gep(out, i as u32, "").unwrap();
-                    self.write_nonprimitive_expression(value, dest);
-                }
+            sir::Expression::Call {
+                function,
+                arguments,
+            } => {
+                let function: CallableValue<'ctx> = self
+                    .write_expression(function)
+                    .into_pointer_value()
+                    .try_into()
+                    .unwrap();
+                let mut arguments: Vec<BasicMetadataValueEnum<'ctx>> = arguments.iter()
+                    .map(|argument| self.write_expression(argument).into())
+                    .collect();
+                arguments.push(out.into());
+                self.builder.build_call(function, &arguments, "");
+            }
+            sir::Expression::FunctionParam { index, data_type } => {
+                let input = self.current_function.unwrap().get_nth_param(*index).unwrap().into_pointer_value();
+                self.write_clone(data_type, input, out);
             }
             sir::Expression::GlobalReference {
                 data_type: sir::DataType::Primitive(sir::PrimitiveDataType::Function { .. }),
                 ..
             } => {
-                let value = self.write_primitive_expression(expr);
+                let value = self.write_expression(expr);
                 self.builder.build_store(out, value);
             }
             sir::Expression::GlobalReference { name, .. } => {
                 self.builder
                     .build_call(self.globals.get(name).unwrap().clone(), &[out.into()], "");
             }
+            sir::Expression::Tuple { values } => {
+                for (i, value) in values.iter().enumerate() {
+                    let dest = self.builder.build_struct_gep(out, i as u32, "").unwrap();
+                    self.write_expression_into(value, dest);
+                }
+            }
             e => {
-                let value = self.write_primitive_expression(e);
+                let value = self.write_expression(e);
                 self.builder.build_store(out, value);
             }
         }
@@ -276,6 +307,51 @@ impl<'ctx> Generator<'ctx> {
                 .ptr_type(AddressSpace::default())
                 .as_basic_type_enum(),
         }
+    }
+
+    fn write_clone(&mut self, data_type: &sir::DataType, input: PointerValue<'ctx>, out: PointerValue<'ctx>) {
+        if data_type.is_primitive() {
+            let tmp = self.builder.build_load(input, "");
+            self.builder.build_store(out, tmp);
+        } else {
+            let func = self.clone_func(data_type);
+            self.builder.build_call(func, &[input.into(), out.into()], "");
+        }
+    }
+
+    fn clone_func(&mut self, data_type: &sir::DataType) -> FunctionValue<'ctx> {
+        let mut name = String::new();
+        data_type.mangle(&mut name).unwrap();
+        write!(&mut name, ".$clone").unwrap();
+
+        self.module.get_function(&name).unwrap_or_else(|| {
+            let ref_type = self.type_to_llvm_reference(data_type).into();
+            let func_type = self.context.void_type().fn_type(&[ref_type, ref_type], false);
+            let func = self.module.add_function(&name, func_type, None);
+
+            let entry = self.context.append_basic_block(func, "entry");
+            let mut old_builder = replace(&mut self.builder, self.context.create_builder());
+            self.builder.position_at_end(entry);
+
+            let input = func.get_nth_param(0).unwrap().into_pointer_value();
+            let out = func.get_nth_param(1).unwrap().into_pointer_value();
+
+            match data_type {
+                sir::DataType::Tuple(elements) => {
+                    for (i, element) in elements.iter().enumerate() {
+                        let source = self.builder.build_struct_gep(input, i as u32, "").unwrap();
+                        let target = self.builder.build_struct_gep(out, i as u32, "").unwrap();
+                        self.write_clone(element, source, target);
+                    }
+                },
+                _ => todo!(),
+            }
+
+            self.builder.build_return(None);
+            swap(&mut self.builder, &mut old_builder);
+            func
+        })
+
     }
 
     pub fn build(self) -> Module<'ctx> {

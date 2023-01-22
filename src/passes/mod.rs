@@ -26,9 +26,6 @@ pub fn transform_expression(expression: &mut sir::Expression, f: &impl Fn(&mut s
             }
         }
         sir::Expression::I64Literal(_) => {}
-        sir::Expression::Lambda { body, .. } => {
-            transform_expression(body, f);
-        }
         sir::Expression::MemberAccess { left, .. } => {
             transform_expression(left, f);
         }

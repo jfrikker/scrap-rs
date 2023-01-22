@@ -213,11 +213,12 @@ fn block(input: &str) -> IResult<&str, sir::Expression> {
     )
     .map(|(name, arguments, body)| match arguments {
         Some(a) => (
-            name.to_string(),
-            sir::Expression::Lambda {
-                arguments: a,
-                body: Box::new(body),
-            },
+            todo!()
+            // name.to_string(),
+            // sir::Expression::Lambda {
+            //     arguments: a,
+            //     body: Box::new(body),
+            // },
         ),
         None => (name.to_string(), body),
     });
