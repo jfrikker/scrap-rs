@@ -163,18 +163,27 @@ impl<'ctx> Generator<'ctx> {
                 function,
                 arguments,
             } => {
-                let function: CallableValue<'ctx> = self
-                    .write_expression(function)
-                    .into_pointer_value()
-                    .try_into()
-                    .unwrap();
-                let arguments: Vec<BasicMetadataValueEnum<'ctx>> = arguments.iter()
-                    .map(|argument| self.write_expression(argument).into())
-                    .collect();
-                self.builder
-                    .build_call(function, &arguments, "")
-                    .try_as_basic_value()
-                    .unwrap_left()
+                let data_type = expr.data_type();
+                let sir::DataType::Primitive(sir::PrimitiveDataType::Function { return_type, .. }) = data_type.as_ref() else {panic!("non function")};
+                if return_type.is_primitive() {
+                    let function: CallableValue<'ctx> = self
+                        .write_expression(function)
+                        .into_pointer_value()
+                        .try_into()
+                        .unwrap();
+                    let arguments: Vec<BasicMetadataValueEnum<'ctx>> = arguments.iter()
+                        .map(|argument| self.write_expression(argument).into())
+                        .collect();
+
+                    self.builder
+                        .build_call(function, &arguments, "")
+                        .try_as_basic_value()
+                        .unwrap_left()
+                } else {
+                    let temp = self.builder.build_alloca(self.type_to_llvm(return_type.as_ref()), "");
+                    self.write_expression_into(expr, temp);
+                    temp.as_basic_value_enum()
+                }
             }
             sir::Expression::FunctionParam { index, .. } => self
                 .current_function
