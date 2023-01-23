@@ -19,9 +19,7 @@ mod sir;
 
 fn main() -> anyhow::Result<()> {
     let text = r#"
-double(arg: (I64, I64)): ((I64, I64), (I64, I64)) = (arg, arg)
-double2(arg: (I64, I64)): ((I64, I64), (I64, I64)) = double(arg)
-test: ((I64, I64), (I64, I64)) = double2((123i64, 456i64))
+add(pair: (I64, I64)): I64 = pair.elem_0 + pair.elem_1
     "#;
 
     let parsed = module.parse(text)?;

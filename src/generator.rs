@@ -210,6 +210,17 @@ impl<'ctx> Generator<'ctx> {
                 .i64_type()
                 .const_int(*val as u64, true)
                 .as_basic_value_enum(),
+            sir::Expression::MemberAccess { left, member } => {
+                let data_type = left.data_type();
+                let left = self.write_expression(left);
+                let index = data_type.field_index(member).unwrap();
+                let ptr = self.builder.build_struct_gep(left.into_pointer_value(), index as u32, "").unwrap();
+                if data_type.field_type(&member).unwrap().is_primitive() {
+                    self.builder.build_load(ptr, "").as_basic_value_enum()
+                } else {
+                    ptr.as_basic_value_enum()
+                }
+            }
             e => {
                 let data_type = e.data_type();
                 let temp = self.builder.build_alloca(self.type_to_llvm(data_type.as_ref()), "");

@@ -48,7 +48,7 @@ impl Expression {
             }
             Expression::GlobalReference { data_type, .. } => Cow::Borrowed(data_type),
             Expression::I64Literal(_) => Cow::Owned(DataType::Primitive(PrimitiveDataType::I64)),
-            Expression::MemberAccess { .. } => todo!(),
+            Expression::MemberAccess { left, member } => Cow::Owned(left.data_type().field_type(&member).unwrap().clone()),
             Expression::FunctionParam { data_type, .. } => Cow::Borrowed(data_type),
             Expression::Reference { .. } => todo!(),
             Expression::Scope { body, .. } => body.data_type(),
@@ -88,6 +88,29 @@ impl DataType {
                 Ok(())
             }
         }
+    }
+
+    pub fn fields(&self) -> Vec<(Cow<String>, &DataType)> {
+        match self {
+            DataType::Primitive(_) => Vec::new(),
+            DataType::Tuple(elems) => elems.iter()
+                .enumerate()
+                .map(|(i, data_type)| (Cow::Owned(format!("elem_{}", i)), data_type))
+                .collect(),
+        }
+    }
+
+    pub fn field_type(&self, name: &str) -> Option<&DataType> {
+        self.fields().into_iter()
+            .find(|(element_name, _)| element_name.as_ref() == name)
+            .map(|(_, data_type)| data_type)
+    }
+
+    pub fn field_index(&self, name: &str) -> Option<usize> {
+        self.fields().into_iter()
+            .enumerate()
+            .find(|(_, (element_name, _))| element_name.as_ref() == name)
+            .map(|(i, _)| i)
     }
 }
 
