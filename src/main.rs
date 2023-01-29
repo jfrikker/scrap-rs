@@ -20,6 +20,7 @@ mod sir;
 fn main() -> anyhow::Result<()> {
     let text = r#"
 add(pair: (I64, I64)): I64 = pair.elem_0 + pair.elem_1
+pair(first: (I64, I64), second: (I64, I64)): ((I64, I64), (I64, I64)) = (first, second)
     "#;
 
     let parsed = module.parse(text)?;

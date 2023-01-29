@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Write, mem::{replace, swap}};
+use std::{fmt::Write, mem::{replace, swap}};
 
 use inkwell::{
     builder::Builder,
@@ -6,7 +6,7 @@ use inkwell::{
     module::Module,
     types::{BasicType, BasicTypeEnum},
     values::{BasicValue, BasicValueEnum, CallableValue, FunctionValue, PointerValue, BasicMetadataValueEnum},
-    AddressSpace,
+    AddressSpace, intrinsics::Intrinsic,
 };
 
 use crate::sir;
@@ -16,7 +16,6 @@ pub struct Generator<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
 
-    globals: HashMap<String, FunctionValue<'ctx>>,
     current_function: Option<FunctionValue<'ctx>>,
 }
 
@@ -26,10 +25,10 @@ impl<'ctx> Generator<'ctx> {
             context,
             module: context.create_module("scrap"),
             builder: context.create_builder(),
-            globals: HashMap::new(),
             current_function: None,
         }
     }
+
 
     pub fn declare_global_constant(&mut self, name: String, data_type: &sir::DataType) {
         let func_type = match data_type {
@@ -39,12 +38,11 @@ impl<'ctx> Generator<'ctx> {
                 .void_type()
                 .fn_type(&[self.type_to_llvm_reference(t).into()], false),
         };
-        let func = self.module.add_function(&name, func_type, None);
-        self.globals.insert(name, func);
+        self.module.add_function(&name, func_type, None);
     }
 
     pub fn write_global_primitive_constant(&mut self, name: &str, value: &sir::Expression) {
-        let func = self.globals.get(name).unwrap().clone();
+        let func = self.module.get_function(name).unwrap();
 
         let entry_block = self.context.append_basic_block(func, "entry");
 
@@ -54,7 +52,7 @@ impl<'ctx> Generator<'ctx> {
     }
 
     pub fn write_global_nonprimitive_constant(&mut self, name: &str, value: &sir::Expression) {
-        let func = self.globals.get(name).unwrap().clone();
+        let func = self.module.get_function(name).unwrap();
 
         let entry_block = self.context.append_basic_block(func, "entry");
 
@@ -87,12 +85,11 @@ impl<'ctx> Generator<'ctx> {
             }
         };
 
-        let func = self.module.add_function(&name, func_type, None);
-        self.globals.insert(name, func);
+        self.module.add_function(&name, func_type, None);
     }
 
     pub fn write_global_function(&mut self, name: &str, value: &sir::Expression) {
-        let func = self.globals.get(name).unwrap().clone();
+        let func = self.module.get_function(name).unwrap();
 
         let entry_block = self.context.append_basic_block(func, "entry");
 
@@ -194,15 +191,15 @@ impl<'ctx> Generator<'ctx> {
                 name,
                 data_type: sir::DataType::Primitive(sir::PrimitiveDataType::Function { .. }),
             } => self
-                .globals
-                .get(name)
+                .module
+                .get_function(name)
                 .unwrap()
                 .as_global_value()
                 .as_pointer_value()
                 .as_basic_value_enum(),
             sir::Expression::GlobalReference { name, .. } => self
                 .builder
-                .build_call(self.globals.get(name).unwrap().clone(), &[], "")
+                .build_call(self.module.get_function(name).unwrap().clone(), &[], "")
                 .try_as_basic_value()
                 .unwrap_left(),
             sir::Expression::I64Literal(val) => self
@@ -260,7 +257,7 @@ impl<'ctx> Generator<'ctx> {
             }
             sir::Expression::GlobalReference { name, .. } => {
                 self.builder
-                    .build_call(self.globals.get(name).unwrap().clone(), &[out.into()], "");
+                    .build_call(self.module.get_function(name).unwrap().clone(), &[out.into()], "");
             }
             sir::Expression::Tuple { values } => {
                 for (i, value) in values.iter().enumerate() {
@@ -330,48 +327,14 @@ impl<'ctx> Generator<'ctx> {
     }
 
     fn write_clone(&mut self, data_type: &sir::DataType, input: PointerValue<'ctx>, out: PointerValue<'ctx>) {
-        if data_type.is_primitive() {
-            let tmp = self.builder.build_load(input, "");
-            self.builder.build_store(out, tmp);
-        } else {
-            let func = self.clone_func(data_type);
-            self.builder.build_call(func, &[input.into(), out.into()], "");
-        }
-    }
-
-    fn clone_func(&mut self, data_type: &sir::DataType) -> FunctionValue<'ctx> {
-        let mut name = String::new();
-        data_type.mangle(&mut name).unwrap();
-        write!(&mut name, ".$clone").unwrap();
-
-        self.module.get_function(&name).unwrap_or_else(|| {
-            let ref_type = self.type_to_llvm_reference(data_type).into();
-            let func_type = self.context.void_type().fn_type(&[ref_type, ref_type], false);
-            let func = self.module.add_function(&name, func_type, None);
-
-            let entry = self.context.append_basic_block(func, "entry");
-            let mut old_builder = replace(&mut self.builder, self.context.create_builder());
-            self.builder.position_at_end(entry);
-
-            let input = func.get_nth_param(0).unwrap().into_pointer_value();
-            let out = func.get_nth_param(1).unwrap().into_pointer_value();
-
-            match data_type {
-                sir::DataType::Tuple(elements) => {
-                    for (i, element) in elements.iter().enumerate() {
-                        let source = self.builder.build_struct_gep(input, i as u32, "").unwrap();
-                        let target = self.builder.build_struct_gep(out, i as u32, "").unwrap();
-                        self.write_clone(element, source, target);
-                    }
-                },
-                _ => todo!(),
-            }
-
-            self.builder.build_return(None);
-            swap(&mut self.builder, &mut old_builder);
-            func
-        })
-
+        let i8_ptr_type = self.context.i8_type().ptr_type(AddressSpace::default()).into();
+        let i64_type = self.context.i64_type().into();
+        let i1_type = self.context.bool_type().into();
+        let size = self.type_to_llvm(data_type).size_of().unwrap();
+        let memcpy = Intrinsic::find("llvm.memcpy.p0i8.p0i8.i64").unwrap().get_declaration(&self.module, &[i8_ptr_type, i8_ptr_type, i64_type, i1_type]).unwrap();
+        let input = self.builder.build_bitcast(input, i8_ptr_type, "");
+        let out = self.builder.build_bitcast(out , i8_ptr_type, "");
+        self.builder.build_call(memcpy, &[out.into(), input.into(), size.into(), self.context.bool_type().const_zero().into()], "");
     }
 
     pub fn build(self) -> Module<'ctx> {
